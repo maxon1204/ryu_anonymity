@@ -105,6 +105,12 @@ class SimpleSwitch13(app_manager.RyuApp):
         print(switches)
         self.net.add_nodes_from(self.switches)
 
+        links_list = get_link(self.topology_api_app, None)
+        print(links_list)
+        # print links_list
+        self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
+        self.net.add_edges_from(self.links)
+
         if src not in self.net:
             self.net.add_node(src)
             #self.net.add_edge(dpid, src, {'port': msg.in_port})
@@ -118,12 +124,6 @@ class SimpleSwitch13(app_manager.RyuApp):
             out_port = ofproto.OFPP_FLOOD
 
         print("**********List of links")
-
-        links_list = get_link(self.topology_api_app, None)
-        print(links_list)
-        # print links_list
-        self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
-        self.net.add_edges_from(self.links)
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
@@ -178,3 +178,4 @@ class SimpleSwitch13(app_manager.RyuApp):
             #self.net.add_edges_from(links)
             #print("**********List of links")
             #print(self.net.edges())
+
