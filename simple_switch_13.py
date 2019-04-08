@@ -96,34 +96,38 @@ class SimpleSwitch13(app_manager.RyuApp):
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
 
+        # learn a mac address to avoid FLOOD next time.
+        self.mac_to_port[dpid][src] = in_port
 
         switch_list = get_switch(self.topology_api_app, None)
         self.logger.info("list of switches %s", switch_list)
-        switches = [switch.dp.id for switch in switch_list]
+        self.switches = [switch.dp.id for switch in switch_list]
         print(switches)
-        # self.net.add_nodes_from(switches)
-        print("**********List of links")
-        links_list = get_link(self.topology_api_app, None)
-        print(links_list)
-        # print links_list
-        links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
+        self.net.add_nodes_from(self.switches)
 
         if src not in self.net:
             self.net.add_node(src)
-            self.net.add_edge(dpid, src, {'port': msg.in_port})
+            #self.net.add_edge(dpid, src, {'port': msg.in_port})
             self.net.add_edge(src, dpid)
         if dst in self.net:
             path = nx.shortest_path(self.net, src, dst)
             next = path[path.index(dpid) + 1]
-            out_port = self.net[dpid][next]['port']
+            #out_port = self.net[dpid][next]['port']
+            out_port = self.mac_to_port[dpid][dst]
         else:
             out_port = ofproto.OFPP_FLOOD
 
+        print("**********List of links")
 
-
+        links_list = get_link(self.topology_api_app, None)
+        print(links_list)
+        # print links_list
+        self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
+        self.net.add_edges_from(self.links)
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
+        '''
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
 
@@ -131,6 +135,7 @@ class SimpleSwitch13(app_manager.RyuApp):
             out_port = self.mac_to_port[dpid][dst]
         else:
             out_port = ofproto.OFPP_FLOOD
+        '''
 
         actions = [parser.OFPActionOutput(out_port)]
 
@@ -152,6 +157,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
 
+
+        #этот обработчик по каким-то причинам не вызывается поэтому все засунул в handler
         @set_ev_cls(event.EventSwitchEnter)
         def get_topology_data(self, ev):
             switch_list = get_switch(self.topology_api_app, None)
