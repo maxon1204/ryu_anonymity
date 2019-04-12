@@ -20,12 +20,20 @@ from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
+from ryu.lib.packet import arp, ipv4
 from ryu.lib.packet import ether_types
 from ryu.topology.api import get_switch, get_link
 from ryu.app.wsgi import ControllerBase
 from ryu.topology import event, switches
 import networkx as nx
+import random
 
+
+class Host():
+    def __init__(self,sw,mac_dst,in_port):
+        self.sw_id = sw
+        self.mac_dst = mac_dst
+        self.in_port = in_port
 
 class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -37,6 +45,23 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.net = nx.DiGraph()
         self.switches = {}
         self.links = {}
+        self.psevdo_set = set()
+        self.Hosts = dict()
+        self.psevdo_mac_to_ip = {}
+        self.real_ip_to_real_mac = {}
+
+
+    # формируем Packetout запрос на свитч для того чтобы отправлять arp запрос на все хосты
+    def send_packet_out(self, datapath, buffer_id, in_port,out_port):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+
+        actions = [ofp_parser.OFPActionOutput(out_port)]
+        req = ofp_parser.OFPPacketOut(datapath, buffer_id,
+                                      in_port, actions)
+        datapath.send_msg(req)
+
+
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -71,6 +96,61 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
 
+
+
+    def generate_mac(self):
+        mac = '00:00:00:'
+
+        z = 16 ** 6
+        a = random.randint(0, z)
+        b = set()
+        while (a in b):
+            a = random.randint(0, z)
+        else:
+            b.add(a)
+        hex_num = hex(a)[2:].zfill(6)
+        # print(hex_num)
+        str = "{}{}{}:{}{}:{}{}".format(mac, *hex_num)
+
+        return str
+
+    #для обработки ARP-запроса
+    def receive_arp(self, datapath, pkt_arp, etherFrame, inPort):
+
+        arp_dst_mac = pkt_arp.dst_mac
+        print(type(pkt_arp.dst_mac))
+        if pkt_arp.opcode == arp.ARP_REQUEST:
+            arp_dst_mac = pkt_arp.dst_mac
+            arp_src_mac = pkt_arp.src_mac
+            print("receive ARP request %s => %s (port%d)" % (etherFrame.src, etherFrame.dst, inPort))
+            #запустить флуд
+
+        elif pkt_arp.opcode == arp.ARP_REPLY:
+            pass
+
+
+
+
+
+    @set_ev_cls(event.EventSwitchEnter)
+    def get_topology_data(self, ev):
+        print("****************************")
+        switch_list = get_switch(self.topology_api_app, None)
+        switches = [switch.dp.id for switch in switch_list]
+        print(switches)
+        # self.net.add_nodes_from(switches)
+        links_list = get_link(self.topology_api_app, None)
+        print(links_list)
+        # print links_list
+        links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
+        print(links)
+        # print links
+        # self.net.add_edges_from(links)
+        links = [(link.dst.dpid, link.src.dpid, {'port': link.dst.port_no}) for link in links_list]
+
+
+
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         # If you hit this you might want to increase
@@ -90,6 +170,14 @@ class SimpleSwitch13(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             # ignore lldp packet
             return
+
+        #проверка на arp запрос
+        '''
+        arpPacket = pkt.get_protocol(arp.arp)
+        if eth.ethertype == ether_types.ETH_TYPE_ARP:
+            if eth.opcode ==
+
+        '''
         dst = eth.dst
         src = eth.src
 
@@ -102,11 +190,11 @@ class SimpleSwitch13(app_manager.RyuApp):
         switch_list = get_switch(self.topology_api_app, None)
         self.logger.info("list of switches %s", switch_list)
         self.switches = [switch.dp.id for switch in switch_list]
-        print(switches)
+        #print(switches)
         self.net.add_nodes_from(self.switches)
 
         links_list = get_link(self.topology_api_app, None)
-        print(links_list)
+        #print(links_list)
         # print links_list
         self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
         self.net.add_edges_from(self.links)
@@ -117,17 +205,23 @@ class SimpleSwitch13(app_manager.RyuApp):
             self.net.add_edge(src, dpid)
         if dst in self.net:
             path = nx.shortest_path(self.net, src, dst)
+            print("path is ")
+            print(path)
+            print("len path ")
+            print(len(path))
+            print("type path ")
+            print(type(path))
             next = path[path.index(dpid) + 1]
             #out_port = self.net[dpid][next]['port']
-            print("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+            print("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
             out_port = self.mac_to_port[dpid][dst]
         else:
             out_port = ofproto.OFPP_FLOOD
 
-        print("**********List of links")
+        #print("**********List of links")
 
 
-        self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+       # self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
         '''
         # learn a mac address to avoid FLOOD next time.
@@ -138,8 +232,40 @@ class SimpleSwitch13(app_manager.RyuApp):
         else:
             out_port = ofproto.OFPP_FLOOD
         '''
+        print("Check if this is arp request")
+        pkt_arp = pkt.get_protocol(arp.arp)
+        #self.receive_arp(datapath,pkt_arp,eth,in_port)
+        print(type(pkt_arp))
+        if pkt_arp:
+            if pkt_arp.opcode == arp.ARP_REQUEST:
+                arp_dst_mac = pkt_arp.dst_mac
+                arp_src_mac = pkt_arp.src_mac
+                print("receive ARP request %s => %s (port%d)" % (eth.src, eth.dst, in_port))
+                # запустить флуд
+                actions = [parser.OFPActionOutput(out_port)]
+                data = None
+                if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+                    data = msg.data
+                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                          in_port=in_port, actions=actions, data=data)
+                datapath.send_msg(out)
+                return
+            elif pkt_arp.opcode == arp.ARP_REPLY:
+                str = self.generate_mac()
+                self.psevdo_mac_to_ip[str] = pkt_arp.src_ip
+                self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.dst_mac
+                pass
 
         actions = [parser.OFPActionOutput(out_port)]
+
+        print("creat road")
+
+        for i in (len(path) - 2):
+            str_src = self.generate_mac()
+            str_dst = self.generate_mac()
+            actions1 = [parser.OFPActionOutput(out_port), parser.OFPActionSetField(eth_dst=str_dst , eth_src=str_src)]
+            self.links[i]
+
 
         # install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
@@ -151,33 +277,12 @@ class SimpleSwitch13(app_manager.RyuApp):
                 return
             else:
                 self.add_flow(datapath, 1, match, actions)
+        '''
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
             data = msg.data
-
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
-
-
-        #этот обработчик по каким-то причинам не вызывается поэтому все засунул в handler
-        @set_ev_cls(event.EventSwitchEnter)
-        def get_topology_data(self, ev):
-            switch_list = get_switch(self.topology_api_app, None)
-            switches = [switch.dp.id for switch in switch_list]
-            print(switches)
-            #self.net.add_nodes_from(switches)
-            print("**********ЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛЛ")
-            links_list = get_link(self.topology_api_app, None)
-            print(links_list)
-            # print links_list
-            links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
-            print(links)
-            # print links
-            #self.net.add_edges_from(links)
-            links = [(link.dst.dpid, link.src.dpid, {'port': link.dst.port_no}) for link in links_list]
-            # print links
-            #self.net.add_edges_from(links)
-            #print("**********List of links")
-            #print(self.net.edges())
+        '''
 
