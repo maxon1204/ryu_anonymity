@@ -27,6 +27,7 @@ from ryu.app.wsgi import ControllerBase
 from ryu.topology import event, switches
 import networkx as nx
 import random
+from ryu.lib.dpid import dpid_to_str, str_to_dpid
 
 
 class Host():
@@ -41,6 +42,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
+        self.mac_to_dpid = {}
         self.topology_api_app = self
         self.net = nx.DiGraph()
         self.switches = {}
@@ -49,19 +51,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.Hosts = dict()
         self.psevdo_mac_to_ip = {}
         self.real_ip_to_real_mac = {}
-
-
-    # формируем Packetout запрос на свитч для того чтобы отправлять arp запрос на все хосты
-    def send_packet_out(self, datapath, buffer_id, in_port,out_port):
-        ofp = datapath.ofproto
-        ofp_parser = datapath.ofproto_parser
-
-        actions = [ofp_parser.OFPActionOutput(out_port)]
-        req = ofp_parser.OFPPacketOut(datapath, buffer_id,
-                                      in_port, actions)
-        datapath.send_msg(req)
-
-
+        self.port_on_host = {} # будет словарь из switch.dpid и порты на которых есть хосты
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -96,8 +86,6 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
 
-
-
     def generate_mac(self):
         mac = '00:00:00:'
 
@@ -113,43 +101,6 @@ class SimpleSwitch13(app_manager.RyuApp):
         str = "{}{}{}:{}{}:{}{}".format(mac, *hex_num)
 
         return str
-
-    #для обработки ARP-запроса
-    def receive_arp(self, datapath, pkt_arp, etherFrame, inPort):
-
-        arp_dst_mac = pkt_arp.dst_mac
-        print(type(pkt_arp.dst_mac))
-        if pkt_arp.opcode == arp.ARP_REQUEST:
-            arp_dst_mac = pkt_arp.dst_mac
-            arp_src_mac = pkt_arp.src_mac
-            print("receive ARP request %s => %s (port%d)" % (etherFrame.src, etherFrame.dst, inPort))
-            #запустить флуд
-
-        elif pkt_arp.opcode == arp.ARP_REPLY:
-            pass
-
-
-
-
-
-    @set_ev_cls(event.EventSwitchEnter)
-    def get_topology_data(self, ev):
-        print("****************************")
-        switch_list = get_switch(self.topology_api_app, None)
-        switches = [switch.dp.id for switch in switch_list]
-        print(switches)
-        # self.net.add_nodes_from(switches)
-        links_list = get_link(self.topology_api_app, None)
-        print(links_list)
-        # print links_list
-        links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
-        print(links)
-        # print links
-        # self.net.add_edges_from(links)
-        links = [(link.dst.dpid, link.src.dpid, {'port': link.dst.port_no}) for link in links_list]
-
-
-
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -171,32 +122,29 @@ class SimpleSwitch13(app_manager.RyuApp):
             # ignore lldp packet
             return
 
-        #проверка на arp запрос
-        '''
-        arpPacket = pkt.get_protocol(arp.arp)
-        if eth.ethertype == ether_types.ETH_TYPE_ARP:
-            if eth.opcode ==
-
-        '''
         dst = eth.dst
         src = eth.src
-
+        print("Type dpid")
         dpid = datapath.id
+        print(type(dpid))
         self.mac_to_port.setdefault(dpid, {})
 
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
+        self.mac_to_dpid[src] = dpid
 
+        print('Get th topology')
         switch_list = get_switch(self.topology_api_app, None)
         self.logger.info("list of switches %s", switch_list)
         self.switches = [switch.dp.id for switch in switch_list]
-        #print(switches)
+        print("switches")
+        print(self.switches)
         self.net.add_nodes_from(self.switches)
 
         links_list = get_link(self.topology_api_app, None)
-        #print(links_list)
-        # print links_list
+        print(links_list)
         self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
+        print(self.links)
         self.net.add_edges_from(self.links)
 
         if src not in self.net:
@@ -213,7 +161,6 @@ class SimpleSwitch13(app_manager.RyuApp):
             print(type(path))
             next = path[path.index(dpid) + 1]
             #out_port = self.net[dpid][next]['port']
-            print("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
             out_port = self.mac_to_port[dpid][dst]
         else:
             out_port = ofproto.OFPP_FLOOD
@@ -232,41 +179,116 @@ class SimpleSwitch13(app_manager.RyuApp):
         else:
             out_port = ofproto.OFPP_FLOOD
         '''
+        print("Check the ports on switch")
+        ports_list = [switch.to_dict() for switch in switch_list]
+        print("ports")
+        print(ports_list)
+        for i in range(len(ports_list)):
+            self.port_on_host[str_to_dpid(ports_list[i]["dpid"])] = set(int(port["port_no"]) for port in ports_list[i]["ports"])
+        print(self.port_on_host)
+        port_on_links = {}
+        for i in range(len(self.links)):
+            port_on_links[self.links[i][0]] = set()
+        for i in range(len(self.links)):
+            port_on_links[self.links[i][0]].add(self.links[i][2]["port"])
+        print("port_on_links")
+        print(port_on_links)
+        print("make difference")
+        print(len(ports_list))
+        for i in range(len(ports_list)):
+            (self.port_on_host[i + 1]).difference_update(port_on_links[i + 1])
+        print("without links ports")
+        print(self.port_on_host)
+
         print("Check if this is arp request")
         pkt_arp = pkt.get_protocol(arp.arp)
         #self.receive_arp(datapath,pkt_arp,eth,in_port)
         print(type(pkt_arp))
         if pkt_arp:
             if pkt_arp.opcode == arp.ARP_REQUEST:
+                self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
                 arp_dst_mac = pkt_arp.dst_mac
+                print('type')
+                print(type(pkt_arp.dst_mac))
                 arp_src_mac = pkt_arp.src_mac
                 print("receive ARP request %s => %s (port%d)" % (eth.src, eth.dst, in_port))
                 # запустить флуд
-                actions = [parser.OFPActionOutput(out_port)]
                 data = None
                 if msg.buffer_id == ofproto.OFP_NO_BUFFER:
                     data = msg.data
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=data)
-                datapath.send_msg(out)
+                for i in range(len(self.port_on_host)):
+                    if self.port_on_host[i]:
+                        for port in self.port_on_host[i]:
+                            fake_mac = self.generation_mac()
+                            arp_req = packet.Packet()
+                            arp_req.add_protocol(
+                                ethernet.ethernet(
+                                    ethertype=ether_types.ETH_TYPE_ARP,
+                                    src=fake_mac,
+                                    dst='ff:ff:ff:ff:ff:ff'
+                                )
+                            )
+                            arp_req.add_protocol(
+                                arp.arp(
+                                    opcode=arp.ARP_REQUEST,
+                                    src_mac=fake_mac,
+                                    src_ip=pkt_arp.src_ip,# тут нужнdatapath.id = iо менять ip адрес или нет?
+                                    dst_ip=pkt_arp.dst_ip,
+                                )
+                            )
+                            arp_req.serialize()
+                            actions = [parser.OFPActionOutput(port)]
+                            datapath.id = i
+                            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                                    in_port=in_port, actions=actions, data=arp_req.data)
+                            datapath.send_msg(out)
                 return
             elif pkt_arp.opcode == arp.ARP_REPLY:
-                str = self.generate_mac()
-                self.psevdo_mac_to_ip[str] = pkt_arp.src_ip
-                self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.dst_mac
-                pass
-
+                fake_mac_answer = self.generate_mac()
+                self.psevdo_mac_to_ip[fake_mac_answer] = pkt_arp.src_ip
+                self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
+                arp_rep = packet.Packet()
+                arp_rep.add_protocol(
+                    ethernet.ethernet(
+                        ethertype=ether_types.ETH_TYPE_ARP,
+                        src=fake_mac_answer,
+                        dst=dst
+                    )
+                )
+                arp_rep.add_protocol(
+                    arp.arp(
+                        opcode=arp.ARP_REPLY,
+                        src_mac=fake_mac_answer,
+                        src_ip=pkt_arp.src_ip,  # тут нужно менять ip адрес или нет?
+                        dst_mac=pkt_arp.dst_mac,
+                        dst_ip=pkt_arp.dst_ip,
+                    )
+                )
+                arp_rep.serialize()
+                #отправить arp ответ на соостветсвующий mac адресс
+                real_mac_dst = self.real_ip_to_real_mac[pkt_arp.dst_ip]
+                temp_dpid = self.mac_to_dpid[real_mac_dst]
+                port = self.mac_to_port[temp_dpid][real_mac_dst]
+                actions = [parser.OFPActionOutput(port)]
+                datapath.id = temp_dpid
+                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                          in_port=in_port, actions=actions, data=arp_rep.data)
+                datapath.send_msg(out)
+                return
+        else:
+            print("Not the arp")
         actions = [parser.OFPActionOutput(out_port)]
 
         print("creat road")
-
+        #построить путь
+        '''
         for i in (len(path) - 2):
             str_src = self.generate_mac()
             str_dst = self.generate_mac()
             actions1 = [parser.OFPActionOutput(out_port), parser.OFPActionSetField(eth_dst=str_dst , eth_src=str_src)]
             self.links[i]
 
-
+        '''
         # install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
@@ -285,4 +307,3 @@ class SimpleSwitch13(app_manager.RyuApp):
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
         '''
-
