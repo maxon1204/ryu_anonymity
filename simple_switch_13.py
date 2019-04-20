@@ -53,6 +53,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.real_ip_to_real_mac = {}
         self.port_on_host = {} # будет словарь из switch.dpid и порты на которых есть хосты
         self.path = []
+        self.real_mac_to_psevdomac = {}
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -87,6 +88,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
 
+    # нужно будет добавить параметр для множетсва
     def generate_mac(self):
         mac = '00:00:00:'
 
@@ -100,8 +102,16 @@ class SimpleSwitch13(app_manager.RyuApp):
         hex_num = hex(a)[2:].zfill(6)
         # print(hex_num)
         str = "{}{}{}:{}{}:{}{}".format(mac, *hex_num)
-
         return str
+    # нужно будет добавить параметр для множества
+    def random_ipv4(self):
+        b = set()
+        temp = '.'.join(str(random.randint(0, 255)) for _ in range(4))
+        while temp in b:
+            temp = '.'.join(str(random.randint(0, 255)) for _ in range(4))
+        else:
+            b.add(temp)
+        return temp
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -228,6 +238,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                 print("Get Arp Reply")
                 print(pkt_arp.dst_ip)
                 real_dst_mac = self.real_ip_to_real_mac[pkt_arp.dst_ip]
+                self.real_mac_to_psevdomac[real_dst_mac] =  pkt_arp.dst_mac
                 fake_mac_answer = self.generate_mac()
                 self.psevdo_mac_to_ip[fake_mac_answer] = pkt_arp.src_ip
                 self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
@@ -276,8 +287,13 @@ class SimpleSwitch13(app_manager.RyuApp):
         print(dst)
         print(src)
         out_port = 0
+        dst1 = ''
+        psevdo_mac_src = ''
         if dst in self.psevdo_mac_to_ip:
+            print("real_mac_to_psevdomac")
+            print(self.real_mac_to_psevdomac)
             dst1 = self.real_ip_to_real_mac[self.psevdo_mac_to_ip[dst]]
+            psevdo_mac_src = self.real_mac_to_psevdomac[src]
             self.path = nx.shortest_path(self.net, src, dst1)
             print("path is ")
             print(self.path)
@@ -287,12 +303,30 @@ class SimpleSwitch13(app_manager.RyuApp):
             print(type(self.path))
             next = self.path[self.path.index(dpid) + 1]
             # out_port = self.net[dpid][next]['port']
+            print(self.path)
+            print("creat road")
+            # построить путь
             out_port = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
-        print(self.path)
-        print("creat road")
-        #построить путь
+            str_src = self.generate_mac()
+            str_dst = self.generate_mac()
+            actions1 = [parser.OFPActionOutput(out_port), parser.OFPActionSetField(eth_dst=dst1),
+                        parser.OFPActionSetField(eth_src=psevdo_mac_src)]
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+            if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+                self.add_flow(datapath, 1, match, actions1, msg.buffer_id)
+                return
+            else:
+                self.add_flow(datapath, 1, match, actions1)
 
 
+        actions = [parser.OFPActionOutput(out_port)]
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+        datapath.send_msg(out)
+        '''
         for i in range(len(self.path) - 2):
             str_src = self.generate_mac()
             str_dst = self.generate_mac()
@@ -312,7 +346,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
-
+        '''
         '''
         # install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
