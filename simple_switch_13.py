@@ -286,9 +286,6 @@ class SimpleSwitch13(app_manager.RyuApp):
         print("path")
         print(dst)
         print(src)
-        out_port = 0
-        dst1 = ''
-        psevdo_mac_src = ''
         if dst in self.psevdo_mac_to_ip:
             print("real_mac_to_psevdomac")
             print(self.real_mac_to_psevdomac)
@@ -307,25 +304,33 @@ class SimpleSwitch13(app_manager.RyuApp):
             print("creat road")
             # построить путь
             out_port = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
+            print("out_port")
+            print(out_port)
             str_src = self.generate_mac()
             str_dst = self.generate_mac()
             actions1 = [parser.OFPActionOutput(out_port), parser.OFPActionSetField(eth_dst=dst1),
                         parser.OFPActionSetField(eth_src=psevdo_mac_src)]
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+
+            actions2 = [parser.OFPActionOutput(in_port), parser.OFPActionSetField(eth_dst=src),
+                        parser.OFPActionSetField(eth_src=dst)]
+            match2 = parser.OFPMatch(in_port=out_port, eth_dst=self.real_mac_to_psevdomac[src], eth_src=dst1)
+
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
                 self.add_flow(datapath, 1, match, actions1, msg.buffer_id)
+                self.add_flow(datapath, 1, match2, actions2, msg.buffer_id)
                 return
             else:
                 self.add_flow(datapath, 1, match, actions1)
+                self.add_flow(datapath, 1, match2, actions2)
 
-
-        actions = [parser.OFPActionOutput(out_port)]
-        data = None
-        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-            data = msg.data
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
+            actions = [parser.OFPActionOutput(out_port)]
+            data = None
+            if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+                data = msg.data
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                      in_port=in_port, actions=actions, data=data)
+            datapath.send_msg(out)
         '''
         for i in range(len(self.path) - 2):
             str_src = self.generate_mac()
@@ -358,13 +363,4 @@ class SimpleSwitch13(app_manager.RyuApp):
                 return
             else:
                 self.add_flow(datapath, 1, match, actions)
-        '''
-
-        '''
-        data = None
-        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-            data = msg.data
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
         '''
