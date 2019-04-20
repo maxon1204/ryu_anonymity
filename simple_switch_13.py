@@ -103,6 +103,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         # print(hex_num)
         str = "{}{}{}:{}{}:{}{}".format(mac, *hex_num)
         return str
+
     # нужно будет добавить параметр для множества
     def random_ipv4(self):
         b = set()
@@ -183,7 +184,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         print(port_on_links)
         print("make difference")
         print(len(ports_list))
-        if  port_on_links:
+        if port_on_links:
             for i in range(len(ports_list)):
                 (self.port_on_host[i + 1]).difference_update(port_on_links[i + 1])
         print("without links ports")
@@ -308,12 +309,12 @@ class SimpleSwitch13(app_manager.RyuApp):
             print(out_port)
             str_src = self.generate_mac()
             str_dst = self.generate_mac()
-            actions1 = [parser.OFPActionOutput(out_port), parser.OFPActionSetField(eth_dst=dst1),
-                        parser.OFPActionSetField(eth_src=psevdo_mac_src)]
+            actions1 = [parser.OFPActionSetField(eth_dst=dst1),
+                        parser.OFPActionSetField(eth_src=psevdo_mac_src),parser.OFPActionOutput(out_port)]
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
 
-            actions2 = [parser.OFPActionOutput(in_port), parser.OFPActionSetField(eth_dst=src),
-                        parser.OFPActionSetField(eth_src=dst)]
+            actions2 = [parser.OFPActionSetField(eth_dst=src),
+                        parser.OFPActionSetField(eth_src=dst),parser.OFPActionOutput(in_port)]
             match2 = parser.OFPMatch(in_port=out_port, eth_dst=self.real_mac_to_psevdomac[src], eth_src=dst1)
 
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
