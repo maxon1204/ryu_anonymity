@@ -54,6 +54,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.port_on_host = {} # будет словарь из switch.dpid и порты на которых есть хосты
         self.path = []
         self.real_mac_to_psevdomac = {}
+        self.b = set()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -89,12 +90,11 @@ class SimpleSwitch13(app_manager.RyuApp):
         datapath.send_msg(mod)
 
     # нужно будет добавить параметр для множетсва
-    def generate_mac(self):
+    def generate_mac(self, b):
         mac = '00:00:00:'
 
         z = 16 ** 6
         a = random.randint(0, z)
-        b = set()
         while (a in b):
             a = random.randint(0, z)
         else:
@@ -210,7 +210,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                             print(port)
                             print("dpid")
                             print(i + 1)
-                            fake_mac = self.generate_mac()
+                            fake_mac = self.generate_mac(self.b)
                             arp_req = packet.Packet()
                             arp_req.add_protocol(
                                 ethernet.ethernet(
@@ -228,11 +228,17 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 )
                             )
                             arp_req.serialize()
-                            actions = [parser.OFPActionOutput(port)]
                             switch = get_switch(self.topology_api_app, i + 1)
+                            current_parser = switch[0].dp.ofproto_parser
+                            actions = [current_parser.OFPActionOutput(port)]
+                            print("datapath")
+                            print(datapath)
+                            print("switch data")
+                            print(switch[0].dp)
                             out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
                                                       in_port=in_port, actions=actions, data=arp_req.data)
                             switch[0].dp.send_msg(out)
+                            print("Send")
                 print("End of Arp reqest")
                 return
             elif pkt_arp.opcode == arp.ARP_REPLY:
@@ -240,7 +246,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                 print(pkt_arp.dst_ip)
                 real_dst_mac = self.real_ip_to_real_mac[pkt_arp.dst_ip]
                 self.real_mac_to_psevdomac[real_dst_mac] = pkt_arp.dst_mac
-                fake_mac_answer = self.generate_mac()
+                fake_mac_answer = self.generate_mac(self.b)
                 self.psevdo_mac_to_ip[fake_mac_answer] = pkt_arp.src_ip
                 self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
                 arp_rep = packet.Packet()
@@ -320,14 +326,14 @@ class SimpleSwitch13(app_manager.RyuApp):
                 temp_in_port = 0
                 temp_out_port = 0
                 for i in range(len(self.path) - 2):
-                    fake_src1 = self.generate_mac()
-                    fake_dst1 = self.generate_mac()
+                    fake_src1 = self.generate_mac(self.b)
+                    fake_dst1 = self.generate_mac(self.b)
                     match1 = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
                     actions1 = [parser.OFPActionSetField(eth_dst=fake_src1),
                                 parser.OFPActionSetField(eth_src=fake_dst1),parser.OFPActionOutput(out_port)]
 
-                    fake_src2 = self.generate_mac()
-                    fake_dst2 = self.generate_mac()
+                    fake_src2 = self.generate_mac(self.b)
+                    fake_dst2 = self.generate_mac(self.b)
                     match2 = parser.OFPMatch(in_port=in_port, eth_dst=dst2, eth_src=src2)
                     actions2 = [parser.OFPActionSetField(eth_dst=fake_src2),
                                 parser.OFPActionSetField(eth_src=fake_dst2),parser.OFPActionOutput()]
