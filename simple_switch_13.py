@@ -55,6 +55,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.path = []
         self.real_mac_to_psevdomac = {}
         self.b = set()
+        self.set_ip = set()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -105,13 +106,12 @@ class SimpleSwitch13(app_manager.RyuApp):
         return str
 
     # нужно будет добавить параметр для множества
-    def random_ipv4(self):
-        b = set()
+    def random_ipv4(self, set_ip):
         temp = '.'.join(str(random.randint(0, 255)) for _ in range(4))
-        while temp in b:
+        while temp in set_ip:
             temp = '.'.join(str(random.randint(0, 255)) for _ in range(4))
         else:
-            b.add(temp)
+            set_ip.add(temp)
         return temp
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -206,10 +206,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                     if (self.port_on_host[i + 1]):
                         print("Отправил")
                         for port in self.port_on_host[i + 1]:
-                            print("Отправляю на порт")
-                            print(port)
-                            print("dpid")
-                            print(i + 1)
+                            print("Отправляю на порт ", port)
+                            print("dpid индекс коммутатора ", i + 1)
                             fake_mac = self.generate_mac(self.b)
                             arp_req = packet.Packet()
                             arp_req.add_protocol(
@@ -231,12 +229,10 @@ class SimpleSwitch13(app_manager.RyuApp):
                             switch = get_switch(self.topology_api_app, i + 1)
                             current_parser = switch[0].dp.ofproto_parser
                             actions = [current_parser.OFPActionOutput(port)]
-                            print("datapath")
-                            print(datapath)
-                            print("switch data")
-                            print(switch[0].dp)
+                            print("datapath = ", datapath)
+                            print("switch data = ", switch[0].dp)
                             out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
-                                                      in_port=in_port, actions=actions, data=arp_req.data)
+                                                      in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=actions, data=arp_req.data)
                             switch[0].dp.send_msg(out)
                             print("Send")
                 print("End of Arp reqest")
@@ -283,17 +279,17 @@ class SimpleSwitch13(app_manager.RyuApp):
                 actions = [parser.OFPActionOutput(port)]
                 switch = get_switch(self.topology_api_app, temp_dpid)
                 out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=arp_rep.data)
+                                          in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=actions, data=arp_rep.data)
                 switch[0].dp.send_msg(out)
                 print("End of Arp Reply")
                 return
         else:
             print("Not the arp")
+        '''
         #actions = [parser.OFPActionOutput(out_port)]
         print("path")
         print(dst)
         print(src)
-        '''
         if dst in self.psevdo_mac_to_ip:
             dst1 = self.real_ip_to_real_mac[self.psevdo_mac_to_ip[dst]]
             psevdo_mac_src = self.real_mac_to_psevdomac[src]
@@ -305,7 +301,7 @@ class SimpleSwitch13(app_manager.RyuApp):
             out_port = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
             if len(self.path) == 3:
                 actions1 = [parser.OFPActionSetField(eth_dst=dst1),
-                            parser.OFPActionSetField(eth_src=psevdo_mac_src),parser.OFPActionOutput(out_port)]
+                            parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
 
                 actions2 = [parser.OFPActionSetField(eth_dst=src),
@@ -321,11 +317,11 @@ class SimpleSwitch13(app_manager.RyuApp):
                     self.add_flow(datapath, 1, match2, actions2)
 
             else:
-                dst2 = ''
-                src2 = ''
-                temp_in_port = 0
-                temp_out_port = 0
-                for i in range(len(self.path) - 2):
+                first_actions = [parser.OFPActionSetField(eth_dst=dst1),
+                            parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(порт между 1 и вторым комутатором)]
+                match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+
+                for i in range(len(self.path) - 4):
                     fake_src1 = self.generate_mac(self.b)
                     fake_dst1 = self.generate_mac(self.b)
                     match1 = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
@@ -334,7 +330,7 @@ class SimpleSwitch13(app_manager.RyuApp):
 
                     fake_src2 = self.generate_mac(self.b)
                     fake_dst2 = self.generate_mac(self.b)
-                    match2 = parser.OFPMatch(in_port=in_port, eth_dst=dst2, eth_src=src2)
+                    match2 = parser.OFPMatch(in_port=in_port, eth_dst=dst2, eth_src=src2)# исправить!!!
                     actions2 = [parser.OFPActionSetField(eth_dst=fake_src2),
                                 parser.OFPActionSetField(eth_src=fake_dst2),parser.OFPActionOutput()]
                     if msg.buffer_id != ofproto.OFP_NO_BUFFER:
@@ -346,7 +342,10 @@ class SimpleSwitch13(app_manager.RyuApp):
                         self.add_flow(datapath, 1, match2, actions2)
                     dst = fake_dst1
                     src = fake_src1
-            
+
+                last_actions = [parser.OFPActionSetField(eth_dst=dst1),
+                            parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(in_port=порт между предпослежним и посленим, eth_dst=то что пришло от предпоследнего, eth_src=то что пришло от предпоследнего)
             actions = [parser.OFPActionOutput(out_port)]
             data = None
             if msg.buffer_id == ofproto.OFP_NO_BUFFER:
@@ -354,4 +353,4 @@ class SimpleSwitch13(app_manager.RyuApp):
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                       in_port=in_port, actions=actions, data=data)
             datapath.send_msg(out)
-            '''
+        '''
