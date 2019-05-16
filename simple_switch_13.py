@@ -351,7 +351,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                         temp_src = temp_fake_src1
                         temp_fake_src1 = self.generate_mac(self.b)
                         temp_fake_dst1 = self.generate_mac(self.b)
-                        temp_in_port1 = self.net[reverse_path[i + 1]][reverse_path[i]]["port"]
+                        temp_in_port1 = self.net[reverse_path[i]][reverse_path[i - 1]]["port"]
+                        print(temp_in_port1)
 
                     temp_match1 = parser.OFPMatch(in_port=temp_in_port1, eth_dst=temp_dst, eth_src=temp_src)
                     temp_actions1 = [parser.OFPActionSetField(eth_dst=temp_fake_dst1),
