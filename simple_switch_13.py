@@ -118,6 +118,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     def _packet_in_handler(self, ev):
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
+        #print("PAcket")
         if ev.msg.msg_len < ev.msg.total_len:
             self.logger.debug("packet truncated: only %s of %s bytes",
                               ev.msg.msg_len, ev.msg.total_len)
@@ -136,31 +137,25 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         dst = eth.dst
         src = eth.src
-        print("Type dpid")
         dpid = datapath.id
-        print(type(dpid))
         self.mac_to_port.setdefault(dpid, {})
 
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
         self.mac_to_dpid[src] = dpid
 
-        print('Get th topology')
         switch_list = get_switch(self.topology_api_app, None)
         #self.logger.info("list of switches %s", switch_list)
         self.switches = [switch.dp.id for switch in switch_list]
-        print("switches")
-        print(self.switches)
         self.net.add_nodes_from(self.switches)
 
         links_list = get_link(self.topology_api_app, None)
         #print(links_list)
         self.links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
-        print(self.links)
         self.net.add_edges_from(self.links)
 
         if src not in self.net:
-            print("Добавить mac_src = %s", src)
+            #print("Добавить mac_src = %s", src)
             self.net.add_node(src)
             self.net.add_edge(dpid, src, attr_dict = {'port': in_port})
             self.net.add_edge(src, dpid)
@@ -168,46 +163,33 @@ class SimpleSwitch13(app_manager.RyuApp):
         #print("**********List of links")
        # self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
-        print("Check the ports on switch")
         ports_list = [switch.to_dict() for switch in switch_list]
-        print("ports")
-        #print(ports_list)
+
         for i in range(len(ports_list)):
             self.port_on_host[str_to_dpid(ports_list[i]["dpid"])] = set(int(port["port_no"]) for port in ports_list[i]["ports"])
-        print(self.port_on_host)
         port_on_links = {}
         for i in range(len(self.links)):
             port_on_links[self.links[i][0]] = set()
         for i in range(len(self.links)):
             port_on_links[self.links[i][0]].add(self.links[i][2]["port"])
-        print("port_on_links")
-        print(port_on_links)
-        print("make difference")
-        print(len(ports_list))
         if port_on_links:
             for i in range(len(ports_list)):
                 (self.port_on_host[i + 1]).difference_update(port_on_links[i + 1])
-        print("without links ports")
-        print(self.port_on_host)
 
-        print("Check if this is arp request")
         pkt_arp = pkt.get_protocol(arp.arp)
         #self.receive_arp(datapath,pkt_arp,eth,in_port)
-        print(type(pkt_arp))
         if pkt_arp:
+            print("Arp")
             if pkt_arp.opcode == arp.ARP_REQUEST:
                 self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
                 arp_dst_mac = pkt_arp.dst_mac
-                print('type')
-                print(type(pkt_arp.dst_mac))
                 arp_src_mac = pkt_arp.src_mac
                 print("receive ARP request %s => %s (port%d)" % (eth.src, eth.dst, in_port))
                 for i in range(len(self.port_on_host)):
                     if (self.port_on_host[i + 1]):
-                        print("Отправил")
                         for port in self.port_on_host[i + 1]:
-                            print("Отправляю на порт ", port)
-                            print("dpid индекс коммутатора ", i + 1)
+                            if port == in_port and dpid == i + 1:
+                                continue
                             fake_mac = self.generate_mac(self.b)
                             arp_req = packet.Packet()
                             arp_req.add_protocol(
@@ -229,17 +211,14 @@ class SimpleSwitch13(app_manager.RyuApp):
                             switch = get_switch(self.topology_api_app, i + 1)
                             current_parser = switch[0].dp.ofproto_parser
                             actions = [current_parser.OFPActionOutput(port)]
-                            print("datapath = ", datapath)
-                            print("switch data = ", switch[0].dp)
                             out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
                                                       in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=actions, data=arp_req.data)
                             switch[0].dp.send_msg(out)
-                            print("Send")
-                print("End of Arp reqest")
+                            print("send arp request")
                 return
             elif pkt_arp.opcode == arp.ARP_REPLY:
-                print("Get Arp Reply")
                 print(pkt_arp.dst_ip)
+                print("receive ARP reply %s => %s (port%d)" % (eth.src, eth.dst, in_port))
                 real_dst_mac = self.real_ip_to_real_mac[pkt_arp.dst_ip]
                 self.real_mac_to_psevdomac[real_dst_mac] = pkt_arp.dst_mac
                 fake_mac_answer = self.generate_mac(self.b)
@@ -263,49 +242,38 @@ class SimpleSwitch13(app_manager.RyuApp):
                     )
                 )
                 arp_rep.serialize()
-                print("Значение таблиц")
-                print(self.real_ip_to_real_mac)
-                print(self.mac_to_dpid)
-                print(pkt_arp.dst_ip)
                 #отправить arp ответ на соостветсвующий mac адресс
                 real_mac_dst = self.real_ip_to_real_mac[pkt_arp.dst_ip]
-                print("mac_dst")
-                print(real_mac_dst)
                 temp_dpid = self.mac_to_dpid[real_mac_dst]
                 port = self.mac_to_port[temp_dpid][real_mac_dst]
-                print("port")
-                print(self.mac_to_port)
-                print(port)
                 actions = [parser.OFPActionOutput(port)]
                 switch = get_switch(self.topology_api_app, temp_dpid)
                 out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
                                           in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=actions, data=arp_rep.data)
                 switch[0].dp.send_msg(out)
-                print("End of Arp Reply")
+                print("src_mac = ", fake_mac_answer)
+                print("dst_mac = ", real_dst_mac)
                 return
-        else:
-            print("Not the arp")
-        '''
-        #actions = [parser.OFPActionOutput(out_port)]
-        print("path")
-        print(dst)
-        print(src)
+
         if dst in self.psevdo_mac_to_ip:
-            dst1 = self.real_ip_to_real_mac[self.psevdo_mac_to_ip[dst]]
+            dst1 = self.real_ip_to_real_mac[self.psevdo_mac_to_ip[dst]] # реальный mac адрес получателя
             psevdo_mac_src = self.real_mac_to_psevdomac[src]
             self.path = nx.shortest_path(self.net, src, dst1)
-            next = self.path[self.path.index(dpid) + 1]
+            path1 = nx.shortest_path(self.net, dst1, src)
+            # next = self.path[self.path.index(dpid) + 1]
             # out_port = self.net[dpid][next]['port']
-            print(self.path)
             print("creat road")
             out_port = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
+            reverse_path = nx.shortest_path(self.net, dst1, src)
+            print(dst)
+            print(src)
             if len(self.path) == 3:
                 actions1 = [parser.OFPActionSetField(eth_dst=dst1),
                             parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(out_port)]
                 match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
 
                 actions2 = [parser.OFPActionSetField(eth_dst=src),
-                            parser.OFPActionSetField(eth_src=dst),parser.OFPActionOutput(in_port)]
+                            parser.OFPActionSetField(eth_src=dst), parser.OFPActionOutput(in_port)]
                 match2 = parser.OFPMatch(in_port=out_port, eth_dst=self.real_mac_to_psevdomac[src], eth_src=dst1)
 
                 if msg.buffer_id != ofproto.OFP_NO_BUFFER:
@@ -317,40 +285,95 @@ class SimpleSwitch13(app_manager.RyuApp):
                     self.add_flow(datapath, 1, match2, actions2)
 
             else:
-                first_actions = [parser.OFPActionSetField(eth_dst=dst1),
-                            parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(порт между 1 и вторым комутатором)]
-                match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+                temp_out_port1 = 0
+                temp_in_port1 = 0
+                temp_fake_src1 = ''
+                temp_fake_dst1 = ''
+                temp_dst = dst
+                temp_src = src
+                print(dst)
+                print(src)
+                for i in range(1, len(self.path) - 1):
+                    if i == 1:
+                        temp_out_port1 = self.net[self.path[1]][self.path[2]]["port"]
+                        print("port = ", temp_out_port1)
+                        temp_fake_src1 = self.generate_mac(self.b)
+                        temp_fake_dst1 = self.generate_mac(self.b)
+                        temp_in_port1 = in_port
+                    elif i == (len(self.path) - 2):
+                        temp_out_port1 = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
+                        print("port = ", temp_out_port1)
+                        temp_dst = temp_fake_dst1
+                        temp_src = temp_fake_src1
+                        temp_fake_src1 = psevdo_mac_src
+                        temp_fake_dst1 = dst1
+                        temp_in_port1 = self.net[self.path[len(self.path) - 2]][self.path[len(self.path) - 3]]["port"]
+                    else:
+                        temp_out_port1 = self.net[self.path[i]][self.path[i + 1]]["port"]
+                        print("port = ", temp_out_port1)
+                        temp_dst = temp_fake_dst1
+                        temp_src = temp_fake_src1
+                        temp_fake_src1 = self.generate_mac(self.b)
+                        temp_fake_dst1 = self.generate_mac(self.b)
+                        temp_in_port1 = self.net[self.path[i + 1]][self.path[i]]["port"]
 
-                for i in range(len(self.path) - 4):
-                    fake_src1 = self.generate_mac(self.b)
-                    fake_dst1 = self.generate_mac(self.b)
-                    match1 = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
-                    actions1 = [parser.OFPActionSetField(eth_dst=fake_src1),
-                                parser.OFPActionSetField(eth_src=fake_dst1),parser.OFPActionOutput(out_port)]
-
-                    fake_src2 = self.generate_mac(self.b)
-                    fake_dst2 = self.generate_mac(self.b)
-                    match2 = parser.OFPMatch(in_port=in_port, eth_dst=dst2, eth_src=src2)# исправить!!!
-                    actions2 = [parser.OFPActionSetField(eth_dst=fake_src2),
-                                parser.OFPActionSetField(eth_src=fake_dst2),parser.OFPActionOutput()]
+                    temp_match1 = parser.OFPMatch(in_port=temp_in_port1, eth_dst=temp_dst, eth_src=temp_src)
+                    temp_actions1 = [parser.OFPActionSetField(eth_dst=temp_fake_dst1),
+                                      parser.OFPActionSetField(eth_src=temp_fake_src1),
+                                      parser.OFPActionOutput(temp_out_port1)]
+                    switch = get_switch(self.topology_api_app, self.path[i])
                     if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                        self.add_flow(datapath, 1, match1, actions1, msg.buffer_id)
-                        self.add_flow(datapath, 1, match2, actions2, msg.buffer_id)
+                        self.add_flow(switch[0].dp, 1, temp_match1, temp_actions1, msg.buffer_id)
                         return
                     else:
-                        self.add_flow(datapath, 1, match1, actions1)
-                        self.add_flow(datapath, 1, match2, actions2)
-                    dst = fake_dst1
-                    src = fake_src1
+                        self.add_flow(switch[0].dp, 1, temp_match1, temp_actions1)
+                temp_dst = self.real_mac_to_psevdomac[src]# изменить src так в цикле выше мы его меняли завести переменную чтобы не портить src
+                temp_src = dst1
+                for i in range(1, len(reverse_path) - 1):
+                    if i == 1:
+                        temp_out_port1 = self.net[reverse_path[1]][reverse_path[2]]["port"]
+                        print("reverse_port = ", temp_out_port1)
+                        temp_fake_src1 = self.generate_mac(self.b)
+                        temp_fake_dst1 = self.generate_mac(self.b)
+                        temp_in_port1 = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
+                    elif i == (len(self.path) - 2):
+                        temp_out_port1 = in_port
+                        print("reverse_port = ", temp_out_port1)
+                        temp_dst = temp_fake_dst1
+                        temp_src = temp_fake_src1
+                        temp_fake_src1 = dst
+                        temp_fake_dst1 = src
+                        temp_in_port1 = self.net[reverse_path[len(reverse_path) - 2]][reverse_path[len(reverse_path) - 3]]["port"]
+                    else:
+                        temp_out_port1 = self.net[reverse_path[i]][reverse_path[i + 1]]["port"]
+                        print("reverse_port = ", temp_out_port1)
+                        temp_dst = temp_fake_dst1
+                        temp_src = temp_fake_src1
+                        temp_fake_src1 = self.generate_mac(self.b)
+                        temp_fake_dst1 = self.generate_mac(self.b)
+                        temp_in_port1 = self.net[reverse_path[i + 1]][reverse_path[i]]["port"]
 
-                last_actions = [parser.OFPActionSetField(eth_dst=dst1),
-                            parser.OFPActionSetField(eth_src=psevdo_mac_src), parser.OFPActionOutput(out_port)]
-                match = parser.OFPMatch(in_port=порт между предпослежним и посленим, eth_dst=то что пришло от предпоследнего, eth_src=то что пришло от предпоследнего)
-            actions = [parser.OFPActionOutput(out_port)]
+                    temp_match1 = parser.OFPMatch(in_port=temp_in_port1, eth_dst=temp_dst, eth_src=temp_src)
+                    temp_actions1 = [parser.OFPActionSetField(eth_dst=temp_fake_dst1),
+                                      parser.OFPActionSetField(eth_src=temp_fake_src1),
+                                      parser.OFPActionOutput(temp_out_port1)]
+                    switch = get_switch(self.topology_api_app, reverse_path[i])
+                    if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+                        self.add_flow(switch[0].dp, 1, temp_match1, temp_actions1, msg.buffer_id)
+                        return
+                    else:
+                        self.add_flow(switch[0].dp, 1, temp_match1, temp_actions1)
+
+            print("Send")
+            print("out_port = ", out_port)
+            print("in_port = ", in_port)
+            temp_actions = [parser.OFPActionSetField(eth_dst=dst1),
+                             parser.OFPActionSetField(eth_src=psevdo_mac_src),
+                             parser.OFPActionOutput(self.mac_to_port[self.mac_to_dpid[dst1]][dst1])]
             data = None
             if msg.buffer_id == ofproto.OFP_NO_BUFFER:
                 data = msg.data
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                      in_port=in_port, actions=actions, data=data)
-            datapath.send_msg(out)
-        '''
+            temp_switch = get_switch(self.topology_api_app, self.path[len(self.path) - 2])
+            out = parser.OFPPacketOut(datapath=temp_switch[0].dp, buffer_id=msg.buffer_id,
+                                      in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=temp_actions, data=data)
+            temp_switch[0].dp.send_msg(out)
