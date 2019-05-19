@@ -2,9 +2,29 @@ from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.util import dumpNodeConnections
 from mininet.log import setLogLevel
+from mininet.node import Controller
+from mininet.cli import CLI
 import sys
+#import ryu
+from os import environ
 
-class SingleSwitchTopo(Topo):
+
+RYUDIR = environ['HOME'] + '/ryu/ryu/app/'
+print(RYUDIR)
+
+class Ryu( Controller ):
+    def __init__( self, name, cdir=RYUDIR,
+                  command='ryu-manager  simple_switch_13.py',
+                  cargs=( "--switch=ovs protocols=OpenFlow13 " ),
+                  **kwargs ):
+        Controller.__init__( self, name, cdir=cdir,
+                             command=command,
+                             cargs=cargs, **kwargs )
+
+controllers={ 'ryu': Ryu }
+
+
+class linear(Topo):
     def build(self, n=1):
         switch = self.addSwitch('s1')
         for h in range(1,n):
@@ -14,17 +34,19 @@ class SingleSwitchTopo(Topo):
             self.addLink(switch, switch1)
             switch, switch1 = switch1, switch
 
-def simpleTest():
-    var = int(sys.argv[1])
-    topo = SingleSwitchTopo(var)
-    net = Mininet(topo)
+def Test(var):
+    topo = linear(var)
+    net = Mininet(topo=topo,
+                  controller=Ryu)
     net.start()
     print("Dumping host connections")
     dumpNodeConnections(net.hosts)
     print("Testing network connectivity")
     net.pingAll()
+    #CLI(net)
     net.stop()
 
 if __name__ == '__main__':
     setLogLevel('info')
-    simpleTest()
+    for var in range(10, 15, 1):
+        Test(var)
