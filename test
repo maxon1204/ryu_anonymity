@@ -14,7 +14,7 @@ print(RYUDIR)
 
 class Ryu( Controller ):
     def __init__( self, name, cdir=RYUDIR,
-                  command='ryu-manager  simple_switch_13.py',
+                  command='/home/maxim/ryu/bin/ryu-manager simple_switch13origin.py',
                   cargs=( "--switch=ovs protocols=OpenFlow13 " ),
                   **kwargs ):
         Controller.__init__( self, name, cdir=cdir,
@@ -36,8 +36,8 @@ class linear(Topo):
 
 def Test(var):
     topo = linear(var)
-    net = Mininet(topo=topo,
-                  controller=Ryu)
+    #net = Mininet(topo=topo,controller=Ryu("c0"))
+    net = Mininet(topo=topo)
     net.start()
     print("Dumping host connections")
     dumpNodeConnections(net.hosts)
