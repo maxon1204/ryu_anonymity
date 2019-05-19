@@ -36,7 +36,7 @@ class linear(Topo):
 
 def Test(var):
     topo = linear(var)
-    #net = Mininet(topo=topo,controller=Ryu("c0"))
+    net = Mininet(topo=topo,controller=Ryu("c0"))
     net = Mininet(topo=topo)
     net.start()
     print("Dumping host connections")
