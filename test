@@ -2,27 +2,27 @@ from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.util import dumpNodeConnections
 from mininet.log import setLogLevel
-from mininet.node import Controller
+from mininet.node import  Ryu, RemoteController
 from mininet.cli import CLI
 import sys
 #import ryu
 from os import environ
 
 
-RYUDIR = environ['HOME'] + '/ryu/ryu/app/'
-print(RYUDIR)
+#RYUDIR = environ['HOME'] + '/ryu/ryu/app/'
+#print(RYUDIR)
 
-class Ryu( Controller ):
-    def __init__( self, name, cdir=RYUDIR,
-                  command='/home/maxim/ryu/bin/ryu-manager simple_switch13origin.py',
-                  cargs=( "--switch=ovs protocols=OpenFlow13 " ),
-                  **kwargs ):
-        Controller.__init__( self, name, cdir=cdir,
-                             command=command,
-                             cargs=cargs, **kwargs )
+class Controller(Ryu):
+    def __init__(self, port=6653):
+        print("Creat")
+        args = '--observe-links --verbose --log-file /home/maxim/zxcvbn.txt'
+        app = 'ryu.app.simple_switch_13 ryu.app.gui_topology.gui_topology'
+        ryu_args = args + ' ' + app
+        Ryu.__init__(self, 'ryu', ryu_args, port=port)
+        #self.url = 'http://localhost:%d' % 8080
 
-controllers={ 'ryu': Ryu }
 
+res = 0
 
 class linear(Topo):
     def build(self, n=1):
@@ -35,9 +35,11 @@ class linear(Topo):
             switch, switch1 = switch1, switch
 
 def Test(var):
+    global res
+    controller = Controller()
     topo = linear(var)
-    net = Mininet(topo=topo,controller=Ryu("c0"))
-    net = Mininet(topo=topo)
+    net = Mininet(topo=topo, controller=RemoteController(controller.name, port=6653))
+    #net = Mininet(topo=topo)
     net.start()
     print("Dumping host connections")
     dumpNodeConnections(net.hosts)
@@ -45,8 +47,12 @@ def Test(var):
     net.pingAll()
     #CLI(net)
     net.stop()
+    #controller.stop()
+    #print("mod = ", mod)
 
 if __name__ == '__main__':
-    setLogLevel('info')
-    for var in range(10, 15, 1):
-        Test(var)
+    setLogLevel('debug')
+    var = 5
+    #for var in range(10, 15, 1):
+    Test(var)
+    print("res = ", res)
