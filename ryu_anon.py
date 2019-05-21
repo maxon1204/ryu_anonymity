@@ -90,7 +90,6 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
 
-    # нужно будет добавить параметр для множетсва
     def generate_mac(self, b):
         mac = '00:00:00:'
 
@@ -105,7 +104,6 @@ class SimpleSwitch13(app_manager.RyuApp):
         str = "{}{}{}:{}{}:{}{}".format(mac, *hex_num)
         return str
 
-    # нужно будет добавить параметр для множества
     def random_ipv4(self, set_ip):
         temp = '.'.join(str(random.randint(0, 255)) for _ in range(4))
         while temp in set_ip:
@@ -139,13 +137,11 @@ class SimpleSwitch13(app_manager.RyuApp):
         src = eth.src
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
-
-        # learn a mac address to avoid FLOOD next time.
+        
         self.mac_to_port[dpid][src] = in_port
         self.mac_to_dpid[src] = dpid
 
         switch_list = get_switch(self.topology_api_app, None)
-        #self.logger.info("list of switches %s", switch_list)
         self.switches = [switch.dp.id for switch in switch_list]
         self.net.add_nodes_from(self.switches)
 
@@ -155,13 +151,9 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.net.add_edges_from(self.links)
 
         if src not in self.net:
-            #print("Добавить mac_src = %s", src)
             self.net.add_node(src)
             self.net.add_edge(dpid, src, attr_dict = {'port': in_port})
             self.net.add_edge(src, dpid)
-
-        #print("**********List of links")
-       # self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
         ports_list = [switch.to_dict() for switch in switch_list]
 
@@ -184,7 +176,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                 self.real_ip_to_real_mac[pkt_arp.src_ip] = pkt_arp.src_mac
                 arp_dst_mac = pkt_arp.dst_mac
                 arp_src_mac = pkt_arp.src_mac
-                print("receive ARP request %s => %s (port%d)" % (eth.src, eth.dst, in_port))
+                #print("receive ARP request %s => %s (port%d)" % (eth.src, eth.dst, in_port))
                 for i in range(len(self.port_on_host)):
                     if (self.port_on_host[i + 1]):
                         for port in self.port_on_host[i + 1]:
@@ -203,7 +195,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 arp.arp(
                                     opcode=arp.ARP_REQUEST,
                                     src_mac=fake_mac,
-                                    src_ip=pkt_arp.src_ip,# тут нужнdatapath.id = iо менять ip адрес или нет?
+                                    src_ip=pkt_arp.src_ip,
                                     dst_ip=pkt_arp.dst_ip,
                                 )
                             )
@@ -217,8 +209,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                             print("send arp request")
                 return
             elif pkt_arp.opcode == arp.ARP_REPLY:
-                print(pkt_arp.dst_ip)
-                print("receive ARP reply %s => %s (port%d)" % (eth.src, eth.dst, in_port))
+                #print(pkt_arp.dst_ip)
+                #print("receive ARP reply %s => %s (port%d)" % (eth.src, eth.dst, in_port))
                 real_dst_mac = self.real_ip_to_real_mac[pkt_arp.dst_ip]
                 self.real_mac_to_psevdomac[real_dst_mac] = pkt_arp.dst_mac
                 fake_mac_answer = self.generate_mac(self.b)
@@ -236,7 +228,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                     arp.arp(
                         opcode=arp.ARP_REPLY,
                         src_mac=fake_mac_answer,
-                        src_ip=pkt_arp.src_ip,  # тут нужно менять ip адрес или нет?
+                        src_ip=pkt_arp.src_ip,  
                         dst_mac=real_dst_mac,
                         dst_ip=pkt_arp.dst_ip,
                     )
@@ -251,8 +243,8 @@ class SimpleSwitch13(app_manager.RyuApp):
                 out = parser.OFPPacketOut(datapath=switch[0].dp, buffer_id=msg.buffer_id,
                                           in_port=ofproto_v1_3.OFPP_CONTROLLER, actions=actions, data=arp_rep.data)
                 switch[0].dp.send_msg(out)
-                print("src_mac = ", fake_mac_answer)
-                print("dst_mac = ", real_dst_mac)
+                #print("src_mac = ", fake_mac_answer)
+                #print("dst_mac = ", real_dst_mac)
                 return
 
         if dst in self.psevdo_mac_to_ip:
@@ -260,8 +252,6 @@ class SimpleSwitch13(app_manager.RyuApp):
             psevdo_mac_src = self.real_mac_to_psevdomac[src]
             self.path = nx.shortest_path(self.net, src, dst1)
             path1 = nx.shortest_path(self.net, dst1, src)
-            # next = self.path[self.path.index(dpid) + 1]
-            # out_port = self.net[dpid][next]['port']
             print("creat road")
             out_port = self.mac_to_port[self.mac_to_dpid[dst1]][dst1]
             reverse_path = nx.shortest_path(self.net, dst1, src)
@@ -365,9 +355,6 @@ class SimpleSwitch13(app_manager.RyuApp):
                     else:
                         self.add_flow(switch[0].dp, 1, temp_match1, temp_actions1)
 
-            print("Send")
-            print("out_port = ", out_port)
-            print("in_port = ", in_port)
             temp_actions = [parser.OFPActionSetField(eth_dst=dst1),
                              parser.OFPActionSetField(eth_src=psevdo_mac_src),
                              parser.OFPActionOutput(self.mac_to_port[self.mac_to_dpid[dst1]][dst1])]
