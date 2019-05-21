@@ -8,7 +8,7 @@ class Controller(Ryu):
     def __init__(self, port=6653):
         print("Creat")
         args = '--observe-links '
-        app = 'ryu.app.ryu_anonymity ryu.app.gui_topology.gui_topology'
+        app = 'ryu.app.ryu_anon ryu.app.gui_topology.gui_topology'
         ryu_args = args + ' ' + app
         Ryu.__init__(self, 'ryu', ryu_args, port=port)
         #self.url = 'http://localhost:%d' % 8080
